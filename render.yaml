@@ -1,20 +1,11 @@
 services:
   - type: web
     name: isabelly-api
-    env: node
+    env: docker
     plan: free
     branch: main
-    buildCommand: |
-      apt-get update && apt-get install -y \
-        chromium \
-        fonts-freefont-ttf \
-        libcairo2-dev \
-        libpango1.0-dev \
-        libjpeg-dev \
-        libgif-dev \
-        librsvg2-dev
-      npm install
-    startCommand: node src/index.js
+    docker:
+      dockerfile: Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
