@@ -19,17 +19,17 @@ ENV NODE_ENV=production
 # Configura o diretório de trabalho
 WORKDIR /app
 
-# Copia os arquivos de dependência
-COPY package*.json ./
+# Copia APENAS os arquivos do backend primeiro
+COPY backend/package*.json ./
 
 # Instala as dependências
 RUN npm ci --only=production
 
-# Copia o código da aplicação
-COPY . .
+# Copia o código do backend
+COPY backend/ .
 
 # Expõe a porta
 EXPOSE 3000
 
 # Comando para iniciar a aplicação
-CMD ["node", "src/index.js"]
+CMD ["node", "index.js"]
