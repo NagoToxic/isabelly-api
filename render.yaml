@@ -1,11 +1,9 @@
 services:
   - type: web
     name: isabelly-api
-    env: docker
     plan: free
     branch: main
-    docker:
-      dockerfile: Dockerfile
+    dockerfile: Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
