@@ -4,7 +4,6 @@ services:
     env: node
     plan: free
     branch: main
-    rootDirectory: .
     buildCommand: |
       apt-get update && apt-get install -y \
         chromium \
