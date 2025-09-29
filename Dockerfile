@@ -1,28 +1,21 @@
 FROM node:18-slim
 
-# Instala dependências do sistema
+# Instala dependências básicas do sistema (para possíveis pacotes nativos)
 RUN apt-get update && apt-get install -y \
-    chromium \
-    fonts-freefont-ttf \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
+    wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Configura variáveis de ambiente para Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Configura variáveis de ambiente
 ENV NODE_ENV=production
 
 # Configura o diretório de trabalho
 WORKDIR /app
 
-# Copia APENAS os arquivos do backend primeiro
+# Copia os arquivos do backend
 COPY backend/package*.json ./
 
-# Instala as dependências
+# Instala APENAS as dependências de produção (ignora devDependencies)
 RUN npm ci --only=production
 
 # Copia o código do backend
@@ -31,5 +24,5 @@ COPY backend/ .
 # Expõe a porta
 EXPOSE 3000
 
-# Comando para iniciar a aplicação
+# Comando para iniciar a aplicação (usando type: module)
 CMD ["node", "index.js"]
