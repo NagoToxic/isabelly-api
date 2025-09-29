@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Painel Admin - API Keys</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    h1 { margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    table, th, td { border: 1px solid #ccc; }
+    th, td { padding: 10px; text-align: center; }
+    input, button { padding: 8px; margin: 5px; }
+    .form-box { margin-bottom: 20px; }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>🔑 Painel de Administração</h1>
+
+  <div class="form-box">
+    <h3>Criar Key</h3>
+    <input id="newKey" placeholder="Digite a key">
+    <input id="newLimit" type="number" placeholder="Limite de usos">
+    <button onclick="createKey()">Criar</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Usos</th>
+        <th>Limite</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="keysTable"></tbody>
+  </table>
+
+<script>
+async function loadKeys() {
+  const res = await fetch("/admin/keys");
+  const data = await res.json();
+  const tbody = document.getElementById("keysTable");
+  tbody.innerHTML = "";
+  data.forEach(k => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${k.key}</td>
+        <td>${k.used}</td>
+        <td>${k.limit}</td>
+        <td>
+          <button onclick="editKey('${k.key}')">Editar</button>
+          <button onclick="deleteKey('${k.key}')">Remover</button>
+        </td>
+      </tr>`;
+  });
+}
+
+async function createKey() {
+  const key = document.getElementById("newKey").value;
+  const limit = parseInt(document.getElementById("newLimit").value);
+  await fetch("/admin/keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, limit })
+  });
+  loadKeys();
+}
+
+async function editKey(key) {
+  const limit = prompt("Novo limite?");
+  const used = prompt("Resetar usos? (digite número ou deixe vazio)");
+  await fetch("/admin/keys/" + key, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      limit: limit ? parseInt(limit) : undefined, 
+      used: used ? parseInt(used) : undefined 
+    })
+  });
+  loadKeys();
+}
+
+async function deleteKey(key) {
+  if (!confirm("Tem certeza que deseja remover?")) return;
+  await fetch("/admin/keys/" + key, { method: "DELETE" });
+  loadKeys();
+}
+
+loadKeys();
+</script>
+</body>
+</html>

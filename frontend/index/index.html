@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel Futurista</title>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;600&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- AOS (animações) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <!-- Fundo animado -->
+  <div class="background">
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+  </div>
+
+  <!-- Sidebar -->
+  <nav id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h3><i class="fas fa-bolt"></i> Painel</h3>
+      <button id="closeSidebar"><i class="fas fa-times"></i></button>
+    </div>
+    <ul class="sidebar-menu">
+      <li><a href="#"><i class="fas fa-home"></i> Início</a></li>
+      <li><a href="/DownloadsCentral"><i class="fas fa-user"></i> Central de Downloads</a></li>
+      <li><a href="/PainelAdm"><i class="fas fa-chart-pie"></i> Painel Adm</a></li>
+      <li><a href="#"><i class="fas fa-cogs"></i> Configurações</a></li>
+      <li><a href="#"><i class="fas fa-sign-out-alt"></i> Sair</a></li>
+    </ul>
+  </nav>
+
+  <!-- Botões fixos -->
+  <button id="openSidebar" class="btn-menu"><i class="fas fa-bars"></i></button>
+  <button id="toggleTheme" class="btn-theme"><i class="fas fa-moon"></i></button>
+
+  <!-- Conteúdo -->
+  <main class="main-content">
+    <header data-aos="fade-down">
+      <h1>Bem-vindo a Predestinada</h1>
+      <p>Variedades de apis.</p>
+    </header>
+
+    <section class="cards-container">
+      <!-- Card com gráfico -->
+      <div class="card" data-aos="zoom-in">
+        <i class="fas fa-chart-line"></i>
+        <h3>Estatísticas</h3>
+        <canvas id="statsChart"></canvas>
+      </div>
+
+      <div class="card" data-aos="zoom-in" data-aos-delay="100">
+        <i class="fas fa-users"></i>
+        <h3>Usuários</h3>
+        <p>Gerencie sua comunidade com facilidade.</p>
+      </div>
+
+      <div class="card" data-aos="zoom-in" data-aos-delay="200">
+        <i class="fas fa-envelope"></i>
+        <h3>Mensagens</h3>
+        <p>Comunicação rápida e integrada.</p>
+      </div>
+
+      <div class="card" data-aos="zoom-in" data-aos-delay="300">
+        <i class="fas fa-lightbulb"></i>
+        <h3>Insights</h3>
+        <p>Descubra padrões inteligentes com IA.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- CSS -->
+
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
+  <script>
+    // Sidebar
+    document.getElementById("openSidebar").addEventListener("click", () => {
+      document.getElementById("sidebar").classList.add("active");
+    });
+    document.getElementById("closeSidebar").addEventListener("click", () => {
+      document.getElementById("sidebar").classList.remove("active");
+    });
+
+    // Tema claro/escuro
+    const toggleBtn = document.getElementById("toggleTheme");
+    toggleBtn.addEventListener("click", () => {
+      if (document.body.getAttribute("data-theme") === "light") {
+        document.body.removeAttribute("data-theme");
+        toggleBtn.innerHTML = '<i class="fas fa-moon"></i>';
+      } else {
+        document.body.setAttribute("data-theme", "light");
+        toggleBtn.innerHTML = '<i class="fas fa-sun"></i>';
+      }
+    });
+
+    // AOS init
+    AOS.init({ duration: 800, once: true });
+
+    // Efeito 3D nos cards
+    const cards = document.querySelectorAll(".card");
+    cards.forEach(card => {
+      card.addEventListener("mousemove", e => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        const rotateX = ((y - centerY) / centerY) * 10;
+        const rotateY = ((x - centerX) / centerX) * -10;
+        card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+      });
+      card.addEventListener("mouseleave", () => {
+        card.style.transform = "rotateX(0) rotateY(0)";
+      });
+    });
+
+    // Gráfico Chart.js
+    const ctx = document.getElementById('statsChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun"],
+        datasets: [{
+          label: "Visitas",
+          data: [12, 19, 8, 25, 15, 30],
+          borderColor: "#6a11cb",
+          backgroundColor: "rgba(106,17,203,0.2)",
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: "#fff" } } },
+        scales: {
+          x: { ticks: { color: "#fff" }, grid: { color: "rgba(255,255,255,0.1)" } },
+          y: { ticks: { color: "#fff" }, grid: { color: "rgba(255,255,255,0.1)" } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

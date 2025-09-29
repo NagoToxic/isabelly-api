@@ -1,0 +1,731 @@
+// func.js
+import axios from 'axios';
+import FormData from 'form-data';
+import fetch from 'node-fetch';
+import { instagramGetUrl } from "instagram-url-direct";
+import getFBInfo from "@xaviabot/fb-downloader";
+import ytSearch from "yt-search";
+import { spawn } from "child_process";
+import fs from 'fs';
+import cheerio from "cheerio";
+import qs from "qs";
+// ==================== FUNÇÕES DE UPSCALE ====================
+function getExtensao(mimeType) {
+  if (/png/.test(mimeType)) return "png";
+  if (/jpe?g/.test(mimeType)) return "jpg";
+  if (/gif/.test(mimeType)) return "gif";
+  if (/webp/.test(mimeType)) return "webp";
+  return "bin";
+}
+
+function nomeAleatorio(mimeType) {
+  return Math.random().toString(36).slice(2, 10) + "." + getExtensao(mimeType);
+}
+
+async function aumentarImagem(buffer, mimeType = "image/jpeg", escala = 2) {
+  try {
+    if (!buffer) return { status: "erro", mensagem: "Buffer vazio" };
+
+    const form = new FormData();
+    form.append("file", buffer, { 
+      filename: nomeAleatorio(mimeType), 
+      contentType: mimeType 
+    });
+    form.append("type", "13");
+    form.append("scaleRadio", String(escala));
+
+    const headers = {
+      accept: "application/json, text/plain, */*",
+      origin: "https://imglarger.com",
+      referer: "https://imglarger.com/",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      ...form.getHeaders()
+    };
+
+    console.log("📤 Fazendo upload da imagem para upscale...");
+
+    const upload = await axios.post(
+      "https://photoai.imglarger.com/api/PhoAi/Upload",
+      form,
+      { 
+        headers,
+        timeout: 30000 
+      }
+    );
+
+    const dadosUpload = upload.data?.data || {};
+    
+    if (!dadosUpload.code || !dadosUpload.type) {
+      return { status: "erro", mensagem: "Upload falhou" };
+    }
+
+    console.log(`🔄 Processando upscale (código: ${dadosUpload.code})...`);
+
+    let urlImagemFinal, tentativas = 0;
+    
+    while (tentativas++ < 40) {
+      const status = await axios.post(
+        "https://photoai.imglarger.com/api/PhoAi/CheckStatus",
+        { 
+          code: dadosUpload.code, 
+          type: String(dadosUpload.type) 
+        },
+        { 
+          headers: { 
+            ...headers, 
+            "content-type": "application/json" 
+          },
+          timeout: 10000 
+        }
+      );
+
+      const dadosStatus = status.data?.data || {};
+      
+      if (dadosStatus.status === "success" && dadosStatus.downloadUrls?.[0]) {
+        urlImagemFinal = dadosStatus.downloadUrls[0];
+        console.log("✅ Upscale concluído com sucesso!");
+        break;
+      }
+      
+      if (dadosStatus.status && dadosStatus.status !== "waiting") {
+        return { status: "erro", mensagem: `Processamento falhou: ${dadosStatus.status}` };
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      console.log(`⏳ Aguardando processamento... (tentativa ${tentativas})`);
+    }
+
+    if (!urlImagemFinal) {
+      return { status: "erro", mensagem: "Tempo limite excedido no upscale" };
+    }
+
+    return { 
+      status: "sucesso", 
+      url: urlImagemFinal, 
+      codigo: dadosUpload.code, 
+      tipo: String(dadosUpload.type),
+      tentativas: tentativas 
+    };
+
+  } catch (erro) {
+    console.error("❌ Erro no upscale:", erro.message);
+    return { 
+      status: "erro", 
+      mensagem: erro.response?.data || erro.message 
+    };
+  }
+}
+
+// ==================== FUNÇÕES DE KEYS ====================
+function loadKeys() {
+    if (!fs.existsSync("keys.json")) fs.writeFileSync("keys.json", JSON.stringify({ keys: [] }, null, 2));
+    return JSON.parse(fs.readFileSync("keys.json", "utf8")).keys;
+}
+
+function saveKeys(keys) {
+    fs.writeFileSync("keys.json", JSON.stringify({ keys }, null, 2));
+}
+
+function checkApiKey(req, res, next) {
+    const key = req.query.apikey || req.headers["x-api-key"];
+    if (!key) return res.status(401).json({ error: "API Key obrigatória" });
+
+    const keys = loadKeys();
+    const entry = keys.find(k => k.key === key);
+
+    if (!entry) return res.status(403).json({ error: "API Key inválida" });
+    if (entry.used >= entry.limit) return res.status(429).json({ error: "Limite de requisições atingido" });
+
+    entry.used++;
+    saveKeys(keys);
+    next();
+}
+
+// ==================== FUNÇÕES EROME ====================
+async function processarErome(url) {
+    try {
+        if (!url.includes("erome.com")) {
+            return { error: "URL inválida. Deve ser do domínio erome.com" };
+        }
+
+        const response = await fetch(url, {
+            headers: { 
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://www.erome.com/",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            },
+            timeout: 15000
+        });
+
+        if (!response.ok) {
+            return { error: `Erro ao acessar a URL: ${response.statusText}` };
+        }
+
+        const html = await response.text();
+        const $ = cheerio.load(html);
+
+        const titulo = $('h1').first().text().trim() || "Sem título";
+        
+        const album = { 
+            titulo, 
+            img: [], 
+            vid: [],
+            img_proxy: [],
+            vid_proxy: [],
+            url_origem: url
+        };
+
+        // Extrair mídia
+        $('video source').each((i, el) => {
+            const src = $(el).attr('src');
+            if (src && src.includes('erome.com')) {
+                const fullUrl = src.startsWith('//') ? `https:${src}` : src;
+                if (!album.vid.includes(fullUrl)) {
+                    album.vid.push(fullUrl);
+                    album.vid_proxy.push(`http://localhost:3000/api/erome/proxy?url=${encodeURIComponent(fullUrl)}&type=video&apikey=Nago`);
+                }
+            }
+        });
+
+        $('video[poster]').each((i, el) => {
+            const poster = $(el).attr('poster');
+            if (poster && poster.includes('erome.com')) {
+                const fullUrl = poster.startsWith('//') ? `https:${poster}` : poster;
+                if (!album.img.includes(fullUrl)) {
+                    album.img.push(fullUrl);
+                    album.img_proxy.push(`http://localhost:3000/api/erome/proxy?url=${encodeURIComponent(fullUrl)}&type=image&apikey=Nago`);
+                }
+            }
+        });
+
+        $('link[rel="preload"][as="image"]').each((i, el) => {
+            const href = $(el).attr('href');
+            if (href && href.includes('erome.com')) {
+                const fullUrl = href.startsWith('//') ? `https:${href}` : href;
+                if (!album.img.includes(fullUrl)) {
+                    album.img.push(fullUrl);
+                    album.img_proxy.push(`http://localhost:3000/api/erome/proxy?url=${encodeURIComponent(fullUrl)}&type=image&apikey=Nago`);
+                }
+            }
+        });
+
+        // Remover duplicatas
+        album.img = [...new Set(album.img)];
+        album.vid = [...new Set(album.vid)];
+        album.img_proxy = [...new Set(album.img_proxy)];
+        album.vid_proxy = [...new Set(album.vid_proxy)];
+
+        // Metadados
+        album.total_imagens = album.img.length;
+        album.total_videos = album.vid.length;
+        album.processado_em = new Date().toISOString();
+
+        return {
+            success: true,
+            data: album
+        };
+
+    } catch (err) {
+        console.error("Erro no processamento Erome:", err);
+        return { error: "Erro interno ao processar o álbum" };
+    }
+}
+
+// ==================== FUNÇÕES YOUTUBE ====================
+async function buscarVideosYouTube(query) {
+    try {
+        const result = await ytSearch(query);
+        const videos = result.videos.slice(0, 10).map(v => ({
+            title: v.title,
+            url: v.url,
+            thumbnail: v.image,
+            duration: v.timestamp
+        }));
+        return videos;
+    } catch (err) {
+        console.error("Erro no YouTube search:", err);
+        throw new Error("Erro ao buscar vídeos");
+    }
+}
+
+async function downloadYouTube(name, type = "audio", quality = "perfect") {
+    try {
+        const result = await ytSearch(name);
+        const video = result.videos[0];
+        if (!video) throw new Error("Vídeo não encontrado");
+
+        const cleanTitle = video.title.replace(/[^a-zA-Z0-9 \-_.]/g, "");
+        const filename = `${cleanTitle}.${type === "audio" ? (quality === "reduced" ? "ogg" : "mp3") : "mp4"}`;
+
+        return {
+            title: video.title,
+            thumbnail: video.thumbnail,
+            duration: video.timestamp,
+            minutes: Math.floor(video.seconds / 60),
+            seconds: video.seconds,
+            url: video.url,
+            filename: filename
+        };
+    } catch (err) {
+        console.error("Erro no download YouTube:", err);
+        throw new Error("Erro ao processar requisição");
+    }
+}
+
+// ==================== FUNÇÕES WEATHER ====================
+async function obterClima(city, language = "pt_br", units = "metric") {
+    try {
+        if (!city) {
+            throw new Error("Cidade é obrigatória");
+        }
+
+        const apiKey = "ac0f20ffff06ca0d26c75de50a719d42";
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=${units}&lang=${language}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.cod !== 200) {
+            throw new Error("Cidade não encontrada");
+        }
+
+        return {
+            status: true,
+            city: data.name,
+            country: data.sys.country,
+            description: data.weather[0].description,
+            temperature: data.main.temp,
+            feels_like: data.main.feels_like,
+            humidity: data.main.humidity,
+            wind_speed: data.wind.speed,
+        };
+    } catch (error) {
+        throw new Error(error.message || "Erro ao buscar clima");
+    }
+}
+
+// ==================== FUNÇÕES FACEBOOK ====================
+async function downloadFacebook(url, cookies, userAgent) {
+    try {
+        // 🔄 Resolver links /share/r/... via meta refresh
+        try {
+            const { data: html } = await axios.get(url, { headers: { "User-Agent": userAgent || "Mozilla/5.0" } });
+            const match = html.match(/<meta http-equiv="refresh" content="0; URL='(.+?)'">/i);
+            if (match && match[1]) url = match[1];
+        } catch (err) {
+            // mantém URL original se falhar
+        }
+
+        // 📥 Busca info do vídeo
+        const result = await getFBInfo(url, cookies, userAgent);
+
+        return {
+            status: true,
+            message: "Facebook video fetched successfully",
+            data: result
+        };
+    } catch (error) {
+        console.error("Erro no Facebook download:", error.message || error);
+        throw new Error("Erro ao baixar vídeo do Facebook");
+    }
+}
+
+// ==================== FUNÇÕES INSTAGRAM ====================
+async function downloadInstagram(url) {
+    try {
+        if (!url.includes("/p/") && !url.includes("/reel/")) {
+            throw new Error("Link inválido. Apenas posts ou reels são suportados.");
+        }
+
+        const data = await instagramGetUrl(url);
+
+        if (!data || !data.url_list || data.url_list.length === 0) {
+            throw new Error("Nenhuma mídia encontrada");
+        }
+
+        return {
+            results_number: data.results_number,
+            post_info: data.post_info,
+            media: data.media_details.map(m => ({
+                type: m.type,
+                url: m.url,
+                thumbnail: m.thumbnail,
+                width: m.dimensions.width,
+                height: m.dimensions.height,
+                views: m.video_view_count || null
+            }))
+        };
+    } catch (err) {
+        console.error("Erro no Instagram download:", err.message || err);
+        throw new Error("Erro ao buscar mídia do Instagram");
+    }
+}
+
+// ==================== FUNÇÕES CLAILA AI ====================
+const CLAILA_BASE_URL = "https://app.claila.com/api/v2";
+
+const CLAILA_MODELS = {
+    "gpt-5-mini": "ChatGPT-5 mini",
+    "gpt-4.1-mini": "ChatGPT 4.1 mini", 
+    "gpt-5": "ChatGPT-5",
+    "gpt-4.1": "ChatGPT 4.1",
+    "gpt-4o": "ChatGPT 4o",
+    "o3-mini": "ChatGPT o3-mini"
+};
+
+async function getClailaCSRFToken() {
+    try {
+        const response = await axios.get(`${CLAILA_BASE_URL}/getcsrftoken`, {
+            headers: {
+                "Accept": "*/*",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            timeout: 10000
+        });
+        return response.data;
+    } catch (error) {
+        throw new Error(`Erro ao obter token CSRF: ${error.message}`);
+    }
+}
+
+async function sendClailaMessage(message, sessionId = null, model = "gpt-4o") {
+    try {
+        const csrfToken = await getClailaCSRFToken();
+        const actualSessionId = sessionId || Date.now().toString();
+
+        const data = new URLSearchParams({
+            model: model,
+            calltype: "completion",
+            message: message,
+            sessionId: actualSessionId
+        });
+
+        const response = await axios.post(`${CLAILA_BASE_URL}/unichat2`, data, {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-CSRF-Token": csrfToken,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://app.claila.com/",
+                "Origin": "https://app.claila.com"
+            },
+            timeout: 60000
+        });
+
+        return {
+            success: true,
+            response: response.data,
+            sessionId: actualSessionId,
+            model: CLAILA_MODELS[model] || model
+        };
+    } catch (error) {
+        throw new Error(`Erro na API Claila: ${error.message}`);
+    }
+}
+
+// ==================== INSTAGRAM SCRAPER ====================
+
+function randomIP() {
+  return Array.from({ length: 4 }, () => Math.floor(Math.random() * 256)).join(".");
+}
+
+async function getToken() {
+  const res = await fetch("https://gramfetchr.com/", {
+    method: "POST",
+    headers: {
+      "accept": "text/x-component",
+      "content-type": "text/plain;charset=UTF-8",
+      "next-action": "00d6c3101978ea75ab0e1c4879ef0c686242515660",
+      "next-router-state-tree": "%5B%22%22%2C%7B%22children%22%3A%5B%5B%22locale%22%2C%22en%22%2C%22d%22%5D%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%2Ctrue%5D%7D%2Cnull%2Cnull%5D",
+      "Referer": "https://gramfetchr.com/"
+    },
+    body: "[]"
+  });
+  const text = await res.text();
+  const tokenMatch = text.match(/"([a-f0-9]{32}:[a-f0-9]{32})"/);
+  if (!tokenMatch) throw new Error("Falha ao obter token");
+  return tokenMatch[1];
+}
+
+async function igScraper(url) {
+  try {
+    const token = await getToken();
+    const res = await fetch("https://gramfetchr.com/api/fetchr", {
+      method: "POST",
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "Referer": "https://gramfetchr.com/"
+      },
+      body: JSON.stringify({
+        url,
+        token,
+        referer: "https://gramfetchr.com/",
+        requester: randomIP()
+      })
+    });
+    
+    const json = await res.json();
+    
+    if (!json.success || !json.mediaItems) {
+      throw new Error("Falha ao obter dados do Instagram");
+    }
+
+    return {
+      success: true,
+      total_media: json.mediaItems.length,
+      media: json.mediaItems.map((m, i) => ({
+        index: i + 1,
+        type: m.isVideo ? "video" : "image",
+        download: "https://gramfetchr.com" + m.downloadLink,
+        preview: "https://gramfetchr.com" + m.preview,
+        thumbnail: "https://gramfetchr.com" + m.thumbnail,
+        dimensions: m.dimensions || null
+      })),
+      metadata: {
+        url_original: url,
+        processado_em: new Date().toISOString(),
+        servico: "GramFetchr"
+      }
+    };
+
+  } catch (error) {
+    console.error("Erro no IG Scraper:", error.message);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+}
+
+// ==================== FUNÇÃO DE DOWNLOAD DIRETO ====================
+
+async function downloadInstagramMedia(url, tipo = 'video') {
+  try {
+    const resultado = await igScraper(url);
+    
+    if (!resultado.success) {
+      throw new Error(resultado.error);
+    }
+
+    if (resultado.media.length === 0) {
+      throw new Error("Nenhuma mídia encontrada");
+    }
+
+    // Se for para baixar apenas um tipo específico
+    const mediaFiltrada = tipo === 'todos' 
+      ? resultado.media 
+      : resultado.media.filter(m => m.type === tipo);
+
+    if (mediaFiltrada.length === 0) {
+      throw new Error(`Nenhuma mídia do tipo '${tipo}' encontrada`);
+    }
+
+    return {
+      success: true,
+      media: mediaFiltrada,
+      total_disponivel: mediaFiltrada.length,
+      url_original: url
+    };
+
+  } catch (error) {
+    throw new Error(`Erro no download: ${error.message}`);
+  }
+}
+
+// ==================== YOUTUBE DOWNLOADER (YTDown.io) ====================
+
+async function getFinalFileUrl(mediaUrl) {
+  const headers = {
+    accept: '*/*',
+    'accept-language': 'id-ID',
+    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    cookie: 'PHPSESSID=ofu9rbop984f7ovqdsp72q9t82',
+    origin: 'https://ytdown.io',
+    referer: 'https://ytdown.io/en/',
+    'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99", "Microsoft Edge Simulate";v="127", "Lemur";v="127"',
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36',
+    'x-requested-with': 'XMLHttpRequest'
+  };
+  
+  const data = qs.stringify({ url: mediaUrl });
+  const resp = await axios.post('https://ytdown.io/proxy.php', data, { headers });
+  return resp.data.api.fileUrl;
+}
+
+async function ytdown(fullUrl) {
+  try {
+    const headers = {
+      accept: '*/*',
+      'accept-language': 'id-ID',
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      cookie: 'PHPSESSID=ofu9rbop984f7ovqdsp72q9t82',
+      origin: 'https://ytdown.io',
+      referer: 'https://ytdown.io/en/',
+      'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99", "Microsoft Edge Simulate";v="127", "Lemur";v="127"',
+      'sec-ch-ua-mobile': '?1',
+      'sec-ch-ua-platform': '"Android"',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36',
+      'x-requested-with': 'XMLHttpRequest'
+    };
+
+    const phaseOneData = qs.stringify({ url: fullUrl });
+    const phaseOneResp = await axios.post('https://ytdown.io/proxy.php', phaseOneData, { headers });
+    const resPhase1 = phaseOneResp.data.api;
+
+    const downloadsVideo = [];
+    const downloadsAudio = [];
+
+    if(resPhase1.mediaItems) {
+      for(const item of resPhase1.mediaItems) {
+        if(item.type.toLowerCase() === 'video') {
+          if(['640x360', '854x480', '1280x720', '1920x1080'].includes(item.mediaRes)) {
+            const finalUrl = await getFinalFileUrl(item.mediaUrl);
+            downloadsVideo.push({
+              quality: item.mediaRes === '640x360' ? '360p (Low)' : 
+                       item.mediaRes === '854x480' ? '480p (SD)' : 
+                       item.mediaRes === '1280x720' ? '720p (HD)' : '1080p (FHD)',
+              resolution: item.mediaRes,
+              size: item.mediaFileSize,
+              extension: item.mediaExtension,
+              url: finalUrl,
+              thumbnail: item.mediaThumbnail,
+              bitrate: item.mediaBitrate || null
+            });
+          }
+        } else if (item.type.toLowerCase() === 'audio') {
+          const finalUrl = await getFinalFileUrl(item.mediaUrl);
+          downloadsAudio.push({
+            quality: 'Áudio',
+            format: item.mediaExtension,
+            size: item.mediaFileSize,
+            url: finalUrl,
+            bitrate: item.mediaBitrate || '128kbps'
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        title: resPhase1.title,
+        description: resPhase1.description,
+        thumbnail: resPhase1.imagePreviewUrl,
+        duration: resPhase1.duration || null,
+        views: resPhase1.mediaStats?.viewsCount || null,
+        upload_date: resPhase1.mediaStats?.dateUploaded || null,
+        channel: {
+          name: resPhase1.userInfo?.name || null,
+          username: resPhase1.userInfo?.username || null,
+          subscribers: resPhase1.mediaStats?.followersCount || null,
+          joined: resPhase1.userInfo?.dateJoined || null,
+          verified: resPhase1.userInfo?.isVerified || false,
+          avatar: resPhase1.userInfo?.userAvatar || null
+        },
+        downloads: {
+          video: downloadsVideo.length ? downloadsVideo : null,
+          audio: downloadsAudio.length ? downloadsAudio : null
+        },
+        metadata: {
+          url_original: fullUrl,
+          processado_em: new Date().toISOString(),
+          total_qualidades: downloadsVideo.length + downloadsAudio.length
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error("Erro no YouTube Downloader:", error.message);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+}
+
+// ==================== FUNÇÃO SIMPLIFICADA PARA DOWNLOAD DIRETO ====================
+
+async function downloadYouTubeDirect(url, qualidade = '720p') {
+  try {
+    const resultado = await ytdown(url);
+    
+    if (!resultado.success) {
+      throw new Error(resultado.error);
+    }
+
+    // Mapear qualidade para resolução
+    const qualidadeMap = {
+      '360p': '640x360',
+      '480p': '854x480', 
+      '720p': '1280x720',
+      '1080p': '1920x1080'
+    };
+
+    const resolucaoDesejada = qualidadeMap[qualidade] || '1280x720';
+    
+    // Encontrar a qualidade desejada
+    let downloadUrl = null;
+    if (resultado.data.downloads.video) {
+      const qualidadeEncontrada = resultado.data.downloads.video.find(
+        item => item.resolution === resolucaoDesejada
+      );
+      downloadUrl = qualidadeEncontrada ? qualidadeEncontrada.url : resultado.data.downloads.video[0]?.url;
+    }
+
+    // Se não encontrou vídeo, tenta áudio
+    if (!downloadUrl && resultado.data.downloads.audio) {
+      downloadUrl = resultado.data.downloads.audio[0]?.url;
+    }
+
+    if (!downloadUrl) {
+      throw new Error("Nenhum download disponível para esta qualidade");
+    }
+
+    return {
+      success: true,
+      title: resultado.data.title,
+      qualidade: qualidade,
+      download_url: downloadUrl,
+      thumbnail: resultado.data.thumbnail,
+      duration: resultado.data.duration
+    };
+
+  } catch (error) {
+    throw new Error(`Erro no download direto: ${error.message}`);
+  }
+}
+
+// ==================== ATUALIZAR EXPORTS ====================
+
+
+
+
+// ==================== EXPORTAR TODAS AS FUNÇÕES ====================
+export { 
+    aumentarImagem,
+    loadKeys,
+    saveKeys,
+    checkApiKey,
+    processarErome,
+    buscarVideosYouTube,
+    downloadYouTube,
+    obterClima,
+    downloadFacebook,
+    downloadInstagram,
+    sendClailaMessage,
+    CLAILA_MODELS,
+    igScraper,
+    downloadInstagramMedia,
+    ytdown,
+    downloadYouTubeDirect
+};
