@@ -1,0 +1,370 @@
+// index.js
+// Teste de vídeo Erome
+app.get("/api/erome/video", checkApiKey, async (req, res) => {
+    try {
+        const { url } = req.query;
+        
+        if (!url) {
+            return res.status(400).json({ error: "URL do vídeo não informada" });
+        }
+
+        console.log("Testando acesso ao vídeo:", url);
+
+        // Teste 1: Tentativa básica
+        const response1 = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://www.erome.com/"
+            }
+        });
+
+        // Teste 2: Headers mais completos
+        const response2 = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.erome.com/",
+                "Accept": "video/mp4,video/webm,video/*,*/*;q=0.8",
+            }
+        });
+
+        // Teste 3: Com Range header
+        const response3 = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://www.erome.com/",
+                "Range": "bytes=0-999"
+            }
+        });
+
+        // Teste 4: Simulando navegador
+        const response4 = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.erome.com/a/a6rDeOLa",
+                "Accept": "*/*",
+                "Origin": "https://www.erome.com"
+            }
+        });
+
+        const resultados = {
+            url_testada: url,
+            testes: [
+                {
+                    nome: "Headers básicos",
+                    status: response1.status,
+                    status_text: response1.statusText,
+                },
+                {
+                    nome: "Headers completos", 
+                    status: response2.status,
+                    status_text: response2.statusText,
+                },
+                {
+                    nome: "Com Range header",
+                    status: response3.status,
+                    status_text: response3.statusText,
+                },
+                {
+                    nome: "Simulando navegador",
+                    status: response4.status,
+                    status_text: response4.statusText,
+                }
+            ],
+            conclusao: response4.status === 200 ? "Vídeo acessível" : "Vídeo bloqueado"
+        };
+
+        res.json({
+            success: true,
+            data: resultados
+        });
+
+    } catch (err) {
+        console.error("Erro no teste de vídeo:", err);
+        res.status(500).json({ 
+            success: false,
+            error: "Erro ao testar vídeo",
+            details: err.message
+        });
+    }
+});
+
+// YouTube search
+app.get("/api/yt/search", checkApiKey, async (req, res) => {
+    const { query } = req.query;
+    if (!query) return res.status(400).json({ error: "Query não informada" });
+
+    try {
+        const videos = await buscarVideosYouTube(query);
+        res.json(videos);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get("/api/yt/download", checkApiKey, async (req, res) => {
+    const { name, type = "audio", quality = "perfect", download } = req.query;
+    if (!name) return res.status(400).json({ error: "Nome da música obrigatório" });
+
+    try {
+        const videoInfo = await downloadYouTube(name, type, quality);
+
+        if (!download || download === "false") {
+            return res.json({
+                ...videoInfo,
+                download_url: `${req.protocol}://${req.get("host")}/api/yt/download?name=${encodeURIComponent(name)}&type=${type}&quality=${quality}&download=true&apikey=${req.query.apikey || ""}`
+            });
+        }
+
+        // ✅ HEADERS CORRETOS PARA ÁUDIO
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Content-Disposition", `attachment; filename="${videoInfo.filename}.mp3"`);
+        res.setHeader("Cache-Control", "no-cache");
+
+        const downloadWithFallback = async () => {
+            const formats = {
+                audio: {
+                    perfect: ["140", "251", "bestaudio[ext=m4a]", "bestaudio"],
+                    reduced: ["140", "251", "bestaudio[ext=m4a]", "bestaudio"]
+                },
+                video: {
+                    perfect: ["18", "22", "best[ext=mp4]", "best"],
+                    reduced: ["18", "best[height<=360]", "best[ext=mp4]"]
+                }
+            };
+
+            const formatList = formats[type][quality] || formats[type].perfect;
+            
+            for (const format of formatList) {
+                try {
+                    console.log(`Tentando formato: ${format} para ${type}/${quality}`);
+                    
+                    if (type === "audio" && quality === "reduced") {
+                        await new Promise((resolve, reject) => {
+                            const audio = spawn("yt-dlp", ["-f", format, "-o", "-", videoInfo.url]);
+                            const ffmpeg = spawn("ffmpeg", [
+                                "-i", "pipe:0",
+                                "-c:a", "libopus",
+                                "-b:a", "64k", 
+                                "-ar", "16000",
+                                "-f", "ogg",
+                                "pipe:1"
+                            ]);
+
+                            audio.stdout.pipe(ffmpeg.stdin);
+                            ffmpeg.stdout.pipe(res);
+
+                            ffmpeg.on('close', (code) => {
+                                if (code === 0) resolve();
+                                else reject(new Error(`FFmpeg failed: ${code}`));
+                            });
+
+                            audio.on('error', reject);
+                            ffmpeg.on('error', reject);
+                        });
+                        return;
+                    } else {
+                        // ✅ CONVERTE PARA MP3 usando ffmpeg
+                        await new Promise((resolve, reject) => {
+                            const ytdlp = spawn("yt-dlp", ["-f", format, "-o", "-", videoInfo.url]);
+                            const ffmpeg = spawn("ffmpeg", [
+                                "-i", "pipe:0",          // Entrada do pipe
+                                "-c:a", "libmp3lame",    // Codec MP3
+                                "-b:a", "192k",          // Bitrate 192k
+                                "-f", "mp3",             // Forçar formato MP3
+                                "pipe:1"                 // Saída para pipe
+                            ]);
+
+                            ytdlp.stdout.pipe(ffmpeg.stdin);
+                            ffmpeg.stdout.pipe(res);
+
+                            ffmpeg.on('close', (code) => {
+                                if (code === 0) resolve();
+                                else reject(new Error(`FFmpeg failed: ${code}`));
+                            });
+
+                            ytdlp.on('error', reject);
+                            ffmpeg.on('error', reject);
+                        });
+                        return;
+                    }
+                } catch (err) {
+                    console.log(`Formato ${format} falhou:`, err.message);
+                    continue;
+                }
+            }
+            throw new Error("Todos os formatos falharam");
+        };
+
+        await downloadWithFallback();
+
+    } catch (err) {
+        console.error(err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
+
+// iPhone Audio
+app.get("/api/iphone-audio", checkApiKey, async (req, res) => {
+  const { name, info } = req.query;
+  if (!name) return res.status(400).json({ error: "Nome da música obrigatório" });
+
+  try {
+    const videoInfo = await downloadYouTube(name);
+
+    if (info === "true") {
+      return res.json({
+        title: videoInfo.title,
+        thumbnail: videoInfo.thumbnail,
+        duration: videoInfo.duration,
+        minutes: videoInfo.minutes,
+        seconds: videoInfo.seconds,
+        url: videoInfo.url
+      });
+    }
+
+    const filename = `${videoInfo.title.replace(/[^a-zA-Z0-9 \-_.]/g, "")}.aac`;
+    
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "audio/aac");
+
+    // CONFIGURAÇÕES AVANÇADAS PARA BURLAR BLOQUEIOS
+    const ytdlpArgs = [
+      "-f", "bestaudio/best",
+      "-o", "-",
+      "--no-part",
+      "--extractor-args", "youtube:player-client=android,web",
+      "--throttled-rate", "100K",
+      "--socket-timeout", "10",
+      "--source-address", "0.0.0.0",
+      "--force-ipv4",
+      "--no-check-certificates",
+      videoInfo.url
+    ];
+
+    console.log("Executando yt-dlp com args:", ytdlpArgs.join(" "));
+
+    const audio = spawn("yt-dlp", ytdlpArgs);
+    const ffmpeg = spawn("ffmpeg", [
+      "-i", "pipe:0",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-f", "adts",
+      "pipe:1"
+    ]);
+
+    let hasData = false;
+    let downloadStartTime = Date.now();
+
+    // Monitor para detectar se está funcionando
+    const progressMonitor = setInterval(() => {
+      const elapsed = Date.now() - downloadStartTime;
+      if (!hasData && elapsed > 100000000) { // 10 segundos sem dados
+        console.log("⏰ Timeout detectado, matando processo...");
+        audio.kill();
+        ffmpeg.kill();
+        clearInterval(progressMonitor);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Timeout no download - YouTube está bloqueando" });
+        }
+      }
+    }, 1000);
+
+    audio.stdout.on('data', (data) => {
+      hasData = true;
+      console.log(`✅ Recebendo dados: ${data.length} bytes`);
+    });
+
+    audio.stdout.pipe(ffmpeg.stdin);
+    ffmpeg.stdout.pipe(res);
+
+    audio.stderr.on('data', (data) => {
+      const output = data.toString();
+      console.log("YT-DLP:", output);
+    });
+
+    ffmpeg.stderr.on('data', (data) => {
+      console.log("FFMPEG:", data.toString());
+    });
+
+    ffmpeg.on('close', (code) => {
+      clearInterval(progressMonitor);
+      console.log(`✅ Download finalizado com código: ${code}`);
+      if (!res.headersSent && code === 0) {
+        res.end();
+      }
+    });
+
+    audio.on('error', (err) => {
+      clearInterval(progressMonitor);
+      console.error("Erro no yt-dlp:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro no processo de download" });
+      }
+    });
+
+    req.on('close', () => {
+      clearInterval(progressMonitor);
+      audio.kill();
+      ffmpeg.kill();
+    });
+
+  } catch (err) {
+    console.error("Erro final:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+app.get("/api/weather", checkApiKey, async (req, res) => {
+  try {
+    const { city, language = "pt_br", units = "metric" } = req.query;
+    const clima = await obterClima(city, language, units);
+    res.json(clima);
+  } catch (error) {
+    res.status(500).json({
+      status: false,
+      message: error.message
+    });
+  }
+});
+
+// Facebook
+app.get("/api/facebook", checkApiKey, async (req, res) => {
+    try {
+        let { url, cookies, userAgent } = req.query;
+        if (!url) return res.status(400).json({ error: "URL não informada" });
+
+        const resultado = await downloadFacebook(url, cookies, userAgent);
+        res.json(resultado);
+    } catch (error) {
+        console.error("Erro no /api/facebook:", error.message || error);
+        res.status(500).json({
+            status: false,
+            message: error.message
+        });
+    }
+});
+
+import { 
+    aumentarImagem,
+    loadKeys,
+    saveKeys,
+    checkApiKey,
+    processarErome,
+    buscarVideosYouTube,
+    downloadYouTube,
+    obterClima,
+    downloadFacebook,
+    downloadInstagram,
+    sendClailaMessage,
+    CLAILA_MODELS,
+    igScraper,
+    downloadInstagramMedia,
+    ytdown,
+    downloadYouTubeDirect,
+    MediaFire,
+    searchYouTube
+} from './func.js';

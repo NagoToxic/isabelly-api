@@ -5,10 +5,11 @@ import fetch from 'node-fetch';
 import { instagramGetUrl } from "instagram-url-direct";
 import getFBInfo from "@xaviabot/fb-downloader";
 import ytSearch from "yt-search";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import fs from 'fs';
 import cheerio from "cheerio";
 import qs from "qs";
+
 // ==================== FUNÇÕES DE UPSCALE ====================
 function getExtensao(mimeType) {
   if (/png/.test(mimeType)) return "png";
@@ -562,66 +563,127 @@ async function getFinalFileUrl(mediaUrl) {
 async function ytdown(fullUrl) {
   try {
     const headers = {
-      accept: '*/*',
-      'accept-language': 'id-ID',
-      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      cookie: 'PHPSESSID=ofu9rbop984f7ovqdsp72q9t82',
-      origin: 'https://ytdown.io',
-      referer: 'https://ytdown.io/en/',
-      'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99", "Microsoft Edge Simulate";v="127", "Lemur";v="127"',
-      'sec-ch-ua-mobile': '?1',
-      'sec-ch-ua-platform': '"Android"',
-      'sec-fetch-dest': 'empty',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-origin',
-      'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36',
-      'x-requested-with': 'XMLHttpRequest'
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Accept': '*/*',
+      'X-Requested-With': 'XMLHttpRequest',
+      'User-Agent': 'Mozilla/5.0 (Android 13; Mobile; rv:144.0) Gecko/144.0 Firefox/144.0',
+      'Referer': 'https://ytdown.io/pt2/',
+      'Origin': 'https://ytdown.io'
     };
 
-    const phaseOneData = qs.stringify({ url: fullUrl });
-    const phaseOneResp = await axios.post('https://ytdown.io/proxy.php', phaseOneData, { headers });
-    const resPhase1 = phaseOneResp.data.api;
+    console.log(`📡 Enviando para ytdown.io: ${fullUrl}`);
 
+    const formData = qs.stringify({ 
+      url: fullUrl 
+    });
+
+    const response = await axios.post('https://ytdown.io/proxy.php', formData, { 
+      headers: headers,
+      timeout: 30000
+    });
+
+    console.log('✅ Resposta recebida do ytdown.io');
+
+    if (!response.data || !response.data.api) {
+      throw new Error('Resposta inválida do ytdown.io');
+    }
+
+    const resPhase1 = response.data.api;
+
+    // Verifica se há erro na resposta
+    if (resPhase1.status === "ERROR" || resPhase1.service !== "YouTube") {
+      throw new Error('URL do YouTube inválida ou não suportada');
+    }
+
+    if (resPhase1.status !== "OK") {
+      throw new Error('Erro no processamento do vídeo');
+    }
+
+    // Processa os downloads disponíveis
     const downloadsVideo = [];
     const downloadsAudio = [];
 
-    if(resPhase1.mediaItems) {
-      for(const item of resPhase1.mediaItems) {
-        if(item.type.toLowerCase() === 'video') {
-          if(['640x360', '854x480', '1280x720', '1920x1080'].includes(item.mediaRes)) {
-            const finalUrl = await getFinalFileUrl(item.mediaUrl);
-            downloadsVideo.push({
-              quality: item.mediaRes === '640x360' ? '360p (Low)' : 
-                       item.mediaRes === '854x480' ? '480p (SD)' : 
-                       item.mediaRes === '1280x720' ? '720p (HD)' : '1080p (FHD)',
-              resolution: item.mediaRes,
-              size: item.mediaFileSize,
-              extension: item.mediaExtension,
-              url: finalUrl,
-              thumbnail: item.mediaThumbnail,
-              bitrate: item.mediaBitrate || null
-            });
-          }
-        } else if (item.type.toLowerCase() === 'audio') {
-          const finalUrl = await getFinalFileUrl(item.mediaUrl);
-          downloadsAudio.push({
-            quality: 'Áudio',
-            format: item.mediaExtension,
+    if (resPhase1.mediaItems && resPhase1.mediaItems.length > 0) {
+      for (const item of resPhase1.mediaItems) {
+        if (item.type && item.type.toLowerCase() === 'video') {
+          downloadsVideo.push({
+            quality: getQualityLabel(item.mediaRes, item.mediaQuality),
+            resolution: item.mediaRes,
             size: item.mediaFileSize,
-            url: finalUrl,
-            bitrate: item.mediaBitrate || '128kbps'
+            extension: item.mediaExtension,
+            url: item.mediaUrl,
+            thumbnail: item.mediaThumbnail,
+            bitrate: item.mediaBitrate || null,
+            duration: item.mediaDuration || null,
+            mediaId: item.mediaId,
+            mediaTask: item.mediaTask
+          });
+        } else if (item.type && item.type.toLowerCase() === 'audio') {
+          downloadsAudio.push({
+            quality: `Áudio ${item.mediaQuality || '128K'}`,
+            format: item.mediaExtension ? item.mediaExtension.toUpperCase() : 'M4A',
+            size: item.mediaFileSize,
+            url: item.mediaUrl,
+            bitrate: item.mediaQuality || '128kbps',
+            codec: getAudioCodec(item.mediaExtension),
+            duration: item.mediaDuration || null,
+            mediaId: item.mediaId,
+            mediaTask: item.mediaTask
           });
         }
       }
     }
 
+    // Função auxiliar para labels de qualidade
+    function getQualityLabel(resolution, quality) {
+      if (!resolution) return quality || 'Qualidade Desconhecida';
+      
+      const labels = {
+        '256x144': '144p',
+        '426x240': '240p',
+        '640x360': '360p',
+        '854x480': '480p', 
+        '1280x720': '720p HD',
+        '1920x1080': '1080p FHD',
+        '2560x1440': '1440p QHD',
+        '3840x2160': '2160p 4K'
+      };
+      return labels[resolution] || quality || resolution;
+    }
+
+    // Função auxiliar para codec de áudio
+    function getAudioCodec(extension) {
+      if (!extension) return 'Unknown';
+      
+      const codecs = {
+        'm4a': 'AAC',
+        'mp3': 'MP3',
+        'webm': 'Opus',
+        'opus': 'Opus'
+      };
+      return codecs[extension.toLowerCase()] || extension.toUpperCase();
+    }
+
+    // Ordena os vídeos por qualidade (maior primeiro)
+    downloadsVideo.sort((a, b) => {
+      const order = ['2160p 4K', '1440p QHD', '1080p FHD', '720p HD', '480p', '360p', '240p', '144p'];
+      return order.indexOf(a.quality) - order.indexOf(b.quality);
+    });
+
+    // Ordena os áudios por qualidade (maior primeiro)
+    downloadsAudio.sort((a, b) => {
+      const aBitrate = parseInt(a.bitrate) || 0;
+      const bBitrate = parseInt(b.bitrate) || 0;
+      return bBitrate - aBitrate;
+    });
+
     return {
       success: true,
       data: {
-        title: resPhase1.title,
-        description: resPhase1.description,
-        thumbnail: resPhase1.imagePreviewUrl,
-        duration: resPhase1.duration || null,
+        title: resPhase1.title || 'Título não disponível',
+        description: resPhase1.description || null,
+        thumbnail: resPhase1.imagePreviewUrl || (resPhase1.mediaItems && resPhase1.mediaItems[0]?.mediaThumbnail) || null,
+        duration: resPhase1.duration || (resPhase1.mediaItems && resPhase1.mediaItems[0]?.mediaDuration) || null,
         views: resPhase1.mediaStats?.viewsCount || null,
         upload_date: resPhase1.mediaStats?.dateUploaded || null,
         channel: {
@@ -630,29 +692,175 @@ async function ytdown(fullUrl) {
           subscribers: resPhase1.mediaStats?.followersCount || null,
           joined: resPhase1.userInfo?.dateJoined || null,
           verified: resPhase1.userInfo?.isVerified || false,
-          avatar: resPhase1.userInfo?.userAvatar || null
+          avatar: resPhase1.userInfo?.userAvatar || null,
+          url: resPhase1.userInfo?.internalUrl || null,
+          bio: resPhase1.userInfo?.userBio || null
         },
         downloads: {
-          video: downloadsVideo.length ? downloadsVideo : null,
-          audio: downloadsAudio.length ? downloadsAudio : null
+          video: downloadsVideo.length > 0 ? downloadsVideo : null,
+          audio: downloadsAudio.length > 0 ? downloadsAudio : null
         },
         metadata: {
           url_original: fullUrl,
+          video_id: resPhase1.id,
           processado_em: new Date().toISOString(),
-          total_qualidades: downloadsVideo.length + downloadsAudio.length
+          total_qualidades: downloadsVideo.length + downloadsAudio.length,
+          status: resPhase1.status,
+          service: resPhase1.service,
+          permanent_link: resPhase1.permanentLink
         }
       }
     };
 
   } catch (error) {
-    console.error("Erro no YouTube Downloader:", error.message);
-    return { 
-      success: false, 
-      error: error.message 
+    console.error('❌ Erro no ytdown:', error.message);
+    
+    if (error.response?.status === 403) {
+      return {
+        success: false,
+        error: 'Acesso bloqueado pelo ytdown.io. Tente novamente em alguns minutos.'
+      };
+    }
+    
+    if (error.code === 'ECONNABORTED') {
+      return {
+        success: false, 
+        error: 'Timeout - Serviço muito lento no momento.'
+      };
+    }
+    
+    if (error.response?.data?.api?.status === "ERROR") {
+      return {
+        success: false,
+        error: 'URL do YouTube inválida ou vídeo não encontrado.'
+      };
+    }
+    
+    return {
+      success: false,
+      error: `Erro: ${error.message}`
     };
   }
 }
 
+// 🎵 FUNÇÃO DE BUSCA
+async function searchYouTube(query) {
+    try {
+        const videos = await buscarVideosYouTube(query);
+        
+        if (!videos || videos.length === 0) {
+            throw new Error('Nenhum resultado encontrado');
+        }
+
+        // Pega o primeiro vídeo da busca
+        const primeiroVideo = videos[0];
+        
+        return {
+            title: primeiroVideo.title,
+            videoId: extrairVideoId(primeiroVideo.url),
+            url: primeiroVideo.url,
+            thumbnail: primeiroVideo.thumbnail,
+            duration: primeiroVideo.duration || 'Desconhecida'
+        };
+
+    } catch (error) {
+        console.error('Erro na busca YouTube:', error);
+        throw error;
+    }
+}
+
+// 🔧 FUNÇÃO AUXILIAR - Extrair Video ID
+function extrairVideoId(url) {
+    try {
+        const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/);
+        return match ? match[1] : null;
+    } catch (error) {
+        console.error('Erro ao extrair videoId:', error);
+        return null;
+    }
+}
+
+// 🎯 PROCESSAR RESULTADO POR TIPO
+function processarResultadoPorTipo(data, type, quality) {
+  const resultadoBase = {
+    title: data.title,
+    thumbnail: data.thumbnail,
+    duration: data.duration,
+    views: data.views,
+    upload_date: data.upload_date,
+    channel: data.channel,
+    url: data.metadata?.url_original,
+    video_id: data.metadata?.video_id
+  };
+
+  if (type === "audio") {
+    // Pega o melhor áudio disponível (128k)
+    const bestAudio = data.downloads?.audio?.find(a => a.bitrate === '128K') || 
+                     data.downloads?.audio?.[0];
+    
+    return {
+      ...resultadoBase,
+      audioUrl: bestAudio?.url || null,
+      audioFormat: bestAudio?.format || null,
+      audioSize: bestAudio?.size || null,
+      audioBitrate: bestAudio?.bitrate || null,
+      audioDuration: bestAudio?.duration || null,
+      downloads: data.downloads?.audio || []
+    };
+    
+  } else {
+    // Para vídeo, seleciona baseado na qualidade
+    let video = null;
+    
+    if (data.downloads?.video) {
+      if (quality === "reduced") {
+        video = data.downloads.video.find(v => v.quality === '360p') || data.downloads.video[data.downloads.video.length - 1];
+      } else if (quality === "perfect") {
+        video = data.downloads.video.find(v => v.quality === '1080p FHD') || 
+                data.downloads.video.find(v => v.quality === '720p HD') || 
+                data.downloads.video[0];
+      } else {
+        video = data.downloads.video[0]; // Melhor qualidade
+      }
+    }
+
+    return {
+      ...resultadoBase,
+      videoUrl: video?.url || null,
+      videoQuality: video?.quality || null,
+      videoResolution: video?.resolution || null,
+      videoSize: video?.size || null,
+      downloads: data.downloads?.video || []
+    };
+  }
+}
+
+// ⏱️ FORMATAR DURAÇÃO (se necessário)
+function formatarDuracao(segundos) {
+    if (!segundos) return "Desconhecida";
+    
+    const horas = Math.floor(segundos / 3600);
+    const minutos = Math.floor((segundos % 3600) / 60);
+    const segs = Math.floor(segundos % 60);
+    
+    if (horas > 0) {
+        return `${horas}:${minutos.toString().padStart(2, '0')}:${segs.toString().padStart(2, '0')}`;
+    } else {
+        return `${minutos}:${segs.toString().padStart(2, '0')}`;
+    }
+}
+
+// 👁️ FORMATAR VISUALIZAÇÕES (se necessário)
+function formatarVisualizacoes(views) {
+    if (!views) return null;
+    
+    if (views >= 1000000) {
+        return (views / 1000000).toFixed(1) + 'M';
+    } else if (views >= 1000) {
+        return (views / 1000).toFixed(1) + 'K';
+    }
+    return views.toString();
+}
 // ==================== FUNÇÃO SIMPLIFICADA PARA DOWNLOAD DIRETO ====================
 
 async function downloadYouTubeDirect(url, qualidade = '720p') {
@@ -705,6 +913,42 @@ async function downloadYouTubeDirect(url, qualidade = '720p') {
   }
 }
 
+async function MediaFire(url) {
+  try {
+    const res1 = await fetch("https://staging-mediafire-direct-url-ui-txd2.frontend.encr.app/api/mediafire/taskid", {
+      method: "POST",
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "accept-language": "id-ID"
+      }
+    });
+    
+    const data1 = await res1.json();
+    const taskId = data1.taskId;
+
+    const res2 = await fetch(`https://staging-mediafire-direct-url-ui-txd2.frontend.encr.app/api/mediafire/download/${taskId}`, {
+      method: "POST",
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/json", 
+        "accept-language": "id-ID"
+      },
+      body: JSON.stringify({ url })
+    });
+    
+    const data2 = await res2.json();
+    return {
+      fileName: data2.fileName,
+      downloadUrl: data2.downloadUrl
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+
 // ==================== ATUALIZAR EXPORTS ====================
 
 
@@ -727,5 +971,7 @@ export {
     igScraper,
     downloadInstagramMedia,
     ytdown,
-    downloadYouTubeDirect
+    downloadYouTubeDirect,
+    MediaFire,
+    searchYouTube
 };

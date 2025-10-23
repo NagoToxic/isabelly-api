@@ -1,0 +1,36 @@
+[
+  {
+    "key": "admin_lv08h2i1g3",
+    "limit": 999999,
+    "used": 0,
+    "owner": "Administrador",
+    "status": "active",
+    "createdAt": "2025-10-17T12:29:04.151Z",
+    "lastUsed": null,
+    "role": "admin",
+    "expiresInDays": 365,
+    "expiresAt": "2026-10-17T12:29:04.183Z"
+  },
+  {
+    "key": "sk_ktbjeuebbiee1di4tkac9",
+    "limit": 500,
+    "used": 85,
+    "owner": "Nago",
+    "status": "active",
+    "createdAt": "2025-10-17T12:36:16.774Z",
+    "lastUsed": "2025-10-21T23:48:12.667Z",
+    "expiresInDays": 999,
+    "expiresAt": "2028-07-12T12:36:16.774Z"
+  },
+  {
+    "key": "Nago",
+    "limit": 500,
+    "used": 115,
+    "owner": "Nago",
+    "status": "active",
+    "createdAt": "2025-10-17T12:36:16.774Z",
+    "lastUsed": "2025-10-22T00:03:37.787Z",
+    "expiresInDays": 999,
+    "expiresAt": "2028-07-12T12:36:16.774Z"
+  }
+]

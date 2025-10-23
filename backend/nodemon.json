@@ -1,5 +1,5 @@
 {
-  "watch": ["."],
-  "ignore": ["keys.json"],
+  "watch": ["controllers", "services", "middleware", "utils"],
+  "ignore": ["data", "downloads", "node_modules", "*.log"],
   "ext": "js,json"
 }

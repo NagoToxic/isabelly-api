@@ -3,7 +3,12 @@
     {
       "key": "Nago",
       "limit": 1000,
-      "used": 487
+      "used": 548
+    },
+    {
+      "key": "Sys",
+      "limit": 10000,
+      "used": 0
     }
   ]
 }
