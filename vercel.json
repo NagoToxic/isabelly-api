@@ -1,12 +1,13 @@
 {
   "version": 2,
+  "buildCommand": "cd backend && npm install",
+  "outputDirectory": "frontend",
   "builds": [
     {
       "src": "backend/package.json",
       "use": "@vercel/node",
       "config": {
-        "nodeVersion": "22.x",
-        "installCommand": "cd backend && npm install"
+        "nodeVersion": "22.x"
       }
     },
     {
