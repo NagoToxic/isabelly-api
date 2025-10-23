@@ -7,6 +7,9 @@ RUN apt-get update && \
     ln -s /usr/bin/python3 /usr/bin/python && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Instala yt-dlp globalmente
+RUN pip3 install --no-cache-dir yt-dlp
+
 # Define diretório de trabalho
 WORKDIR /app
 
