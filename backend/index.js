@@ -66,6 +66,21 @@ app.post("/admin/api/keys", checkAdminKey, criarKey);
 app.put("/admin/api/keys/:key", checkAdminKey, atualizarKey);
 app.delete("/admin/api/keys/:key", checkAdminKey, deletarKey);
 // -------------------- ROTAS PÚBLICAS --------------------
+// Rota de Health Check
+app.get('/api/health', (req, res) => {
+    try {
+        res.status(200).json({
+            status: 'ok',
+            uptime: process.uptime(),    // tempo que o servidor está rodando em segundos
+            timestamp: Date.now()
+        });
+    } catch (err) {
+        res.status(500).json({
+            status: 'error',
+            error: err.message
+        });
+    }
+});
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "../frontend", "start.html")));
 app.get("/api/erome", checkApiKey, handleEromeAlbum);
 app.get("/api/erome/proxy", checkApiKey, handleEromeProxy);
