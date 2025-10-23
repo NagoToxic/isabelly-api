@@ -2,22 +2,15 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/index.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "frontend/**/*",
-      "use": "@vercel/static"
+      "src": "backend/package.json",
+      "use": "@vercel/node",
+      "config": {
+        "installCommand": "cd backend && npm install --ignore-scripts"
+      }
     }
   ],
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/backend/index.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/frontend/$1"
-    }
+    {"src": "/api/(.*)", "dest": "/backend/index.js"},
+    {"src": "/(.*)", "dest": "/frontend/$1"}
   ]
 }

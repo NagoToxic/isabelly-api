@@ -4,8 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "@xaviabot/fb-downloader": "^1.0.14",
@@ -17,6 +16,8 @@
     "instagram-url-direct": "^2.0.7",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "ruhend-scraper": "^9.0.8",
+    "yt-dlp-exec": "^1.0.2",
     "yt-search": "^2.13.1",
     "ytdl-core": "^4.11.5"
   },
