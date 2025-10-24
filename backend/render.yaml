@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: api-downloader
+    env: docker
+    plan: free
+    rootDir: api/backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    autoDeploy: true
