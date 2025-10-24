@@ -1,31 +1,29 @@
 FROM node:18-alpine
 
-# Instalar Python3, FFmpeg e dependências para yt-dlp
-RUN apk add --no-cache \
+# Instalar dependências do sistema primeiro
+RUN apk update && apk add --no-cache \
     python3 \
     py3-pip \
-    ffmpeg \
-    && pip3 install --upgrade pip \
-    && pip3 install yt-dlp
+    ffmpeg
+
+# Agora instalar yt-dlp
+RUN pip3 install --upgrade pip && \
+    pip3 install yt-dlp
 
 WORKDIR /app
 
-# Copiar apenas os arquivos de dependência primeiro
+# Copiar arquivos de dependência
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copiar o código da aplicação
+# Copiar todo o código
 COPY . .
 
 # Criar diretório de downloads
 RUN mkdir -p downloads
 
-# Expor a porta (Render usa 10000)
+# Expor a porta do Render
 EXPOSE 10000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:10000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
 
 # Comando de inicialização
 CMD ["npm", "start"]
