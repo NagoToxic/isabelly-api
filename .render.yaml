@@ -5,7 +5,7 @@ services:
     region: oregon   # pode mudar: oregon, frankfurt, singapore...
     plan: free       # plano gratuito do Render
 
-    rootDir: api/backend
+    rootDir: backend/
     buildCommand: bash render-build.sh
     startCommand: npm start
 
