@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: api-backend
+    env: node
+    region: oregon   # pode mudar: oregon, frankfurt, singapore...
+    plan: free       # plano gratuito do Render
+
+    rootDir: api/backend
+    buildCommand: bash render-build.sh
+    startCommand: npm start
+
+    autoDeploy: true
+    branch: main
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # adicione suas variáveis .env abaixo:
+      # - key: API_KEY
+      #   value: sua_chave_aqui
+
+    disk:
+      name: yt-dlp-cache
+      mountPath: /var/tmp
+      sizeGB: 1
