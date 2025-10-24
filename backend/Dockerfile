@@ -1,14 +1,14 @@
-FROM node:18-alpine
+FROM node:18-bullseye
 
-# Instalar dependências do sistema primeiro
-RUN apk update && apk add --no-cache \
+# Instalar Python e dependências (Debian-based é mais compatível)
+RUN apt-get update && apt-get install -y \
     python3 \
-    py3-pip \
-    ffmpeg
+    python3-pip \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Agora instalar yt-dlp
-RUN pip3 install --upgrade pip && \
-    pip3 install yt-dlp
+# Instalar yt-dlp
+RUN pip3 install yt-dlp
 
 WORKDIR /app
 
