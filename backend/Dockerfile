@@ -1,6 +1,6 @@
-FROM node:18-bullseye
+FROM node:22-bullseye
 
-# Instalar Python e dependências (Debian-based é mais compatível)
+# Instalar dependências do sistema
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -8,22 +8,26 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar yt-dlp
-RUN pip3 install yt-dlp
+RUN pip3 install --upgrade pip && pip3 install yt-dlp
 
 WORKDIR /app
 
-# Copiar arquivos de dependência
+# Copiar package.json
 COPY package*.json ./
-RUN npm ci --only=production
 
-# Copiar todo o código
+# Verificar e instalar dependências
+RUN if [ -f "package.json" ]; then \
+        npm install --production --no-optional; \
+    else \
+        echo "ERRO: package.json não encontrado" && exit 1; \
+    fi
+
+# Copiar o resto da aplicação
 COPY . .
 
 # Criar diretório de downloads
 RUN mkdir -p downloads
 
-# Expor a porta do Render
 EXPOSE 10000
 
-# Comando de inicialização
 CMD ["npm", "start"]
