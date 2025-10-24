@@ -1,21 +1,17 @@
-FROM node:22-bullseye
+FROM node:22
 
-# Instalar dependências
+# Instalar Python e FFmpeg
 RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg
 RUN pip3 install yt-dlp
 
 WORKDIR /app
 
-# Copiar package.json primeiro (para cache)
-COPY package*.json ./
-RUN npm install --production
-
-# Copiar o resto do código
+# Copiar tudo
 COPY . .
 
-# Criar downloads
-RUN mkdir -p downloads
+# Instalar dependências (simples assim)
+RUN npm install
 
 EXPOSE 10000
 
-CMD ["node", "index.js"]
+CMD ["npm", "start"]
